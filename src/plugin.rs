@@ -125,9 +125,7 @@ impl ParamSpec {
         if self.unit == "Hz" && v.abs() >= 1000.0 {
             return format!("{:.2} kHz", v / 1000.0);
         }
-        let num = if self.step >= 1.0 {
-            format!("{v:.0}")
-        } else if v.abs() >= 100.0 {
+        let num = if self.step >= 1.0 || v.abs() >= 100.0 {
             format!("{v:.0}")
         } else if v.abs() >= 10.0 {
             format!("{v:.1}")

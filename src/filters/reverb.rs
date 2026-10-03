@@ -9,6 +9,14 @@ const SPREAD: usize = 23;
 const INPUT_GAIN: f32 = 0.015;
 const WET_SCALE: f32 = 3.0;
 
+/// Level compensation for the comb feedback: the tail's energy grows like
+/// 1/(1-fb^2), so a long room (fb -> 0.98) would be ~+12 dB louder than a
+/// short one on dense material. Normalised to roughly unity on noise at the
+/// default size; capped at 1 so small rooms are not boosted.
+fn compensation(fb: f32) -> f32 {
+    (1.41 * (1.0 - fb * fb).max(0.0).sqrt()).min(1.0)
+}
+
 struct Comb {
     buf: Vec<f32>,
     pos: usize,
@@ -122,6 +130,7 @@ impl Filter for Reverb {
     fn process(&mut self, buf: &mut [f32]) {
         let n = self.chans.len();
         let (fb, damp, mix) = (self.feedback, self.damp, self.mix);
+        let wet_scale = WET_SCALE * compensation(fb);
         let pre = self.predelay;
         let use_pre = pre >= 1.0;
         let w1 = self.width * 0.5 + 0.5;
@@ -137,8 +146,8 @@ impl Filter for Reverb {
                 }
                 let l = Self::run(&mut self.chans[0], x[0], fb, damp);
                 let r = Self::run(&mut self.chans[1], x[1], fb, damp);
-                let wl = (l * w1 + r * w2) * WET_SCALE;
-                let wr = (r * w1 + l * w2) * WET_SCALE;
+                let wl = (l * w1 + r * w2) * wet_scale;
+                let wr = (r * w1 + l * w2) * wet_scale;
                 frame[0] = frame[0] * (1.0 - mix) + wl * mix;
                 frame[1] = frame[1] * (1.0 - mix) + wr * mix;
             } else {
@@ -147,7 +156,7 @@ impl Filter for Reverb {
                     let inp = *s * INPUT_GAIN;
                     let x = if use_pre { ch.pre.read(pre) } else { inp };
                     ch.pre.push(inp);
-                    let w = Self::run(ch, x, fb, damp) * WET_SCALE;
+                    let w = Self::run(ch, x, fb, damp) * wet_scale;
                     *s = *s * (1.0 - mix) + w * mix;
                 }
             }
@@ -244,7 +253,7 @@ mod tests {
                 f.process(c);
             }
             let m = b.iter().fold(0.0f32, |a, x| a.max(x.abs()));
-            assert!(m.is_finite() && m < 30.0, "ch {ch} max {m}");
+            assert!(m.is_finite() && m < 4.0, "ch {ch} max {m}");
         }
     }
 }

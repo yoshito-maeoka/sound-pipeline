@@ -747,9 +747,48 @@ fn render_offline(
         done += chunk.len();
         progress.store((done as u64 * 999 / total as u64) as u32, Ordering::Relaxed);
     }
+    if !filters.is_empty() {
+        render_tail(&mut filters, &mut out, source.sample_rate, ch);
+    }
     audio::write_wav(path, &out, source.sample_rate, source.channels)?;
     progress.store(1000, Ordering::Relaxed);
     Ok(())
+}
+
+/// Quiet threshold for the render tail (-90 dBFS).
+const TAIL_QUIET: f32 = 3.162e-5;
+/// Stop the tail once the output has stayed quiet this long.
+const TAIL_QUIET_SECS: f32 = 0.5;
+/// Never render more than this much past the end of the source.
+const TAIL_MAX_SECS: f32 = 10.0;
+
+/// Keep feeding silence through `filters` after the source ended, appending
+/// the output to `out`, until it stays below -90 dBFS for 0.5 s (capped at
+/// +10 s). Trailing silence is trimmed so the file ends where the tail does.
+fn render_tail(filters: &mut [Box<dyn Filter>], out: &mut Vec<f32>, sample_rate: u32, ch: usize) {
+    let src_len = out.len();
+    let max = (TAIL_MAX_SECS * sample_rate as f32) as usize * ch;
+    let quiet_needed = (TAIL_QUIET_SECS * sample_rate as f32) as usize * ch;
+    let step = 4096 * ch;
+    let mut last_loud = src_len;
+    let mut chunk = vec![0.0f32; step];
+    while out.len() - src_len < max && out.len() - last_loud < quiet_needed {
+        chunk.fill(0.0);
+        for f in filters.iter_mut() {
+            f.process(&mut chunk);
+        }
+        for s in chunk.iter_mut() {
+            if !s.is_finite() {
+                *s = 0.0;
+            }
+        }
+        let base = out.len();
+        out.extend_from_slice(&chunk);
+        if let Some(i) = chunk.iter().rposition(|s| s.abs() > TAIL_QUIET) {
+            last_loud = base + (i / ch + 1) * ch;
+        }
+    }
+    out.truncate(last_loud.max(src_len));
 }
 
 #[cfg(test)]
@@ -890,6 +929,24 @@ mod tests {
         assert_eq!(core.hold_nodes.len(), 2);
         core.apply(Cmd::Remove(0));
         assert_eq!((core.nodes.len(), core.hold_nodes.len(), core.node_meters.len()), (1, 1, 1));
+    }
+
+    #[test]
+    fn render_includes_effect_tail() {
+        let reg = crate::plugin::Registry::with_builtins();
+        let desc = reg.get("delay").expect("delay builtin");
+        // 100 ms click burst, 1 s of 250 ms echoes with feedback 0.5, fully wet.
+        let mut samples = vec![0.0f32; 2 * 4800];
+        samples[..200].fill(0.5);
+        let src = AudioData { samples, sample_rate: 48000, channels: 2 };
+        let path = std::env::temp_dir().join(format!("sp-render-tail-{}.wav", std::process::id()));
+        let progress = AtomicU32::new(0);
+        render_offline(&src, &[(desc, vec![250.0, 0.5, 1.0])], &path, &progress).unwrap();
+        let d = audio::decode_file(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(d.samples.len() > 2 * 48000, "tail missing: {}", d.samples.len());
+        assert!(d.samples.len() < 2 * 48000 * 11, "tail uncapped");
+        assert!(d.samples.iter().all(|s| s.is_finite()));
     }
 
     #[test]

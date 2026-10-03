@@ -18,7 +18,11 @@ sp song.mp3 --device NAME   # pick an output device (see `sp devices`)
 ```
 
 Add filters from the picker, edit their parameters with sliders, bypass or
-reorder them, and play/seek. Press `?` in the app for the key list.
+reorder them, and play/seek. The key list is always shown on the bottom line:
+`←→` select, `a` add, `d` delete, `b` bypass, `<` `>` move, `⏎` edit, `space` play/pause,
+`[` `]` seek, `l` loop, `o` output picker (also Render to WAV), `x` export, `q` quit.
+The mouse works too. Rendering to WAV appends the reverb/delay tail (until the output
+stays below -90 dBFS for 0.5 s, at most 10 s).
 Plugin loading problems are shown in the app and in `sp list`.
 
 ## Pipe commands
