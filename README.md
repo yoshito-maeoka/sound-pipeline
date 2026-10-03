@@ -17,13 +17,64 @@ sp song.mp3                 # open the TUI
 sp song.mp3 --device NAME   # pick an output device (see `sp devices`)
 ```
 
-Add filters from the picker, edit their parameters with sliders, bypass or
-reorder them, and play/seek. The key list is always shown on the bottom line:
-`←→` select, `a` add, `d` delete, `b` bypass, `<` `>` move, `⏎` edit, `space` play/pause,
-`[` `]` seek, `l` loop, `o` output picker (also Render to WAV), `x` export, `q` quit.
-The mouse works too. Rendering to WAV appends the reverb/delay tail (until the output
-stays below -90 dBFS for 0.5 s, at most 10 s).
+```
+ song.mp3 ──▶ EQ ──▶ Compressor ──▶ Reverb ──▶ Speaker
+```
+
+The chain runs left to right, from the file to the speaker. Each box shows a
+level meter, and you can change settings while the sound plays.
+
+| Key | Action |
+|---|---|
+| `←` `→` | select a box |
+| `a` | add a filter after the selected box |
+| `d` / `Del` | delete the selected filter |
+| `b` | bypass the selected filter |
+| `<` `>` | move the selected filter left / right |
+| `⏎` / `Tab` | open the editor for the selected filter (`Esc` goes back) |
+| `space` | play / pause |
+| `[` `]` | seek back / forward 5 s |
+| `l` | loop on / off |
+| `o` | output picker: choose a device, or render the chain to a WAV file |
+| `x` | export the chain as a shell pipeline (copied to the clipboard on macOS) |
+| `q` | quit |
+
+The key list is always shown on the bottom line.
+
+**Mouse:**
+- Click an arrow `──▶` to add a filter at that spot.
+- Click a box to select it, and click it again to edit it.
+- Click the speaker to choose the output.
+- Click or drag sliders and EQ bars. The scroll wheel adjusts the selected setting.
+- Click the progress bar to seek.
+
+**Editors:** most filters use one slider per setting. The Equalizer shows 8
+vertical band bars (`←→` band, `↑↓` gain, `Tab` switches to the extra
+sliders). The Compressor shows a live gain-reduction meter.
+
+**Rendering to WAV** (from the `o` picker) writes `<file>.sp.wav` next to the
+source. It keeps going after the song ends until the reverb/delay tail fades
+out (below -90 dBFS for 0.5 s, at most 10 s extra).
+
 Plugin loading problems are shown in the app and in `sp list`.
+
+## Built-in filters
+
+| Id | Name | Category | What it does |
+|---|---|---|---|
+| `eq` | Equalizer | Tone | 8-band graphic EQ (60 Hz – 16 kHz, ±12 dB) |
+| `lowpass` | Low-pass | Tone | removes highs above the cutoff |
+| `highpass` | High-pass | Tone | removes lows below the cutoff |
+| `gain` | Gain | Tone | volume and stereo pan |
+| `compressor` | Compressor | Dynamics | evens out loud and quiet parts, with gain-reduction meter |
+| `distortion` | Distortion | Drive | soft, hard or fuzz clipping with a tone control |
+| `chorus` | Chorus | Modulation | thickens the sound with a slowly moving delay |
+| `flanger` | Flanger | Modulation | jet-like sweep with feedback |
+| `delay` | Delay | Time | clean repeating delay |
+| `echo` | Echo | Time | tape-style echo, darker repeats, optional ping-pong |
+| `reverb` | Reverb | Time | Freeverb-style room reverb with predelay |
+
+`sp list` prints every filter with its parameters (key, range, default, unit).
 
 ## Pipe commands
 
@@ -80,12 +131,15 @@ Protocol:
   uppercased, e.g. `SP_PARAM_BITS=8`) for each param.
 - Parameters are read once at start-up; when the user changes one in the TUI the
   process is restarted (with ~150 ms debounce).
-- stderr goes to `<tmpdir>/sp-plugin-<id>.log`, not the terminal.
+- In the TUI and when rendering, stderr goes to `<tmpdir>/sp-plugin-<id>.log`
+  so it does not corrupt the screen. `sp filter` leaves stderr on the terminal.
 - In the TUI, if the plugin cannot keep up (more than ~20 ms latency) the dry
   signal passes through; if it dies, the filter becomes a passthrough.
   Offline (`sp filter`, rendering) it waits for the output.
 
-See `plugins/bitcrush.py` for a complete Python example. Minimal shell plugin
+See `plugins/bitcrush.py` for a complete Python example. Plugins in `./plugins`
+are only found when you run `sp` from that directory; copy the manifest and
+script to `~/.config/sp/plugins` to use them everywhere. Minimal shell plugin
 (`command = ["cat"]`) passes audio through unchanged.
 
 ### 2. Rust plugins
@@ -122,3 +176,25 @@ cargo run --example custom_filter -- song.mp3
 
 Because filters are shared by the whole CLI, a Rust plugin also works in
 `sp filter` (via your own binary): `custom_filter filter tremolo rate=6`.
+
+## Known issues
+
+Tracked in [beads](https://github.com/steveyegge/beads) (`bd ready` lists them):
+
+- `sp filter gain gain` (a setting without `=value`) shows the general usage
+  text instead of a specific error.
+- `sp decode --channels 9` is accepted without complaint.
+- The CLI pipe commands (`sp filter` etc.) do not add an effect tail at the
+  end of the stream; only Render to WAV does.
+
+## Development
+
+```sh
+cargo test                    # unit + integration tests (bitcrush test needs python3)
+cargo clippy --all-targets
+bd ready                      # open work items
+```
+
+Layout: `src/plugin.rs` (plugin API), `src/filters/` (built-ins),
+`src/exec_plugin.rs` (process plugins), `src/audio/` (decode, output, WAV),
+`src/engine.rs` (real-time engine + render), `src/tui/`, `src/cli.rs`.
