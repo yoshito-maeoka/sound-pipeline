@@ -1,0 +1,23 @@
+id = "bitcrush"
+name = "Bitcrush"
+category = "Plugin"
+description = "Lo-fi: quantize bit depth and hold samples (python3 example plugin)"
+command = ["python3", "bitcrush.py"]
+
+[[params]]
+key = "bits"
+label = "Bit depth"
+min = 1
+max = 16
+default = 8
+step = 1
+unit = "bit"
+
+[[params]]
+key = "downsample"
+label = "Downsample"
+min = 1
+max = 32
+default = 4
+step = 1
+unit = "x"

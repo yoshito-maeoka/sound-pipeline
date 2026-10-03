@@ -3,6 +3,7 @@
 pub mod biquad;
 pub mod compressor;
 pub mod delay;
+mod delayline;
 pub mod distortion;
 pub mod eq;
 pub mod gain;
